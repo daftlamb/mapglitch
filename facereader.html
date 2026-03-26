@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>画脸测命 · 神算子</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f5f0e8;--ink:#1a1008;--red:#c0392b;--gold:#b8860b;--paper:#fffdf6;
+}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:'Noto Serif SC',serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  padding:24px 16px;
+}
+h1{
+  font-size:clamp(22px,5vw,32px);font-weight:900;letter-spacing:.15em;
+  color:var(--ink);text-align:center;margin-bottom:4px;
+}
+.subtitle{
+  font-size:13px;color:#888;letter-spacing:.1em;margin-bottom:24px;text-align:center;
+}
+/* decorative divider */
+.divider{
+  display:flex;align-items:center;gap:10px;margin-bottom:20px;width:100%;max-width:440px;
+}
+.divider span{flex:1;height:1px;background:linear-gradient(to right,transparent,var(--gold),transparent);}
+.divider i{font-style:normal;color:var(--gold);font-size:18px;}
+
+/* canvas wrapper */
+#canvas-wrap{
+  position:relative;width:360px;height:360px;max-width:100%;
+  border:2px solid var(--ink);border-radius:4px;background:var(--paper);
+  box-shadow:4px 4px 0 var(--ink);cursor:crosshair;overflow:hidden;
+  margin-bottom:16px;
+}
+#canvas-wrap::before{
+  content:'在此处画一张脸';position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;color:#ccc;pointer-events:none;letter-spacing:.1em;
+  z-index:0;
+}
+canvas{position:absolute;inset:0;z-index:1;}
+
+/* tools */
+.tools{display:flex;gap:10px;margin-bottom:16px;align-items:center;}
+.tool-btn{
+  background:var(--paper);border:1.5px solid var(--ink);border-radius:4px;
+  padding:6px 14px;font-family:'Noto Serif SC',serif;font-size:13px;
+  cursor:pointer;letter-spacing:.05em;transition:all .15s;
+}
+.tool-btn:hover{background:var(--ink);color:#fff;}
+.tool-btn.active{background:var(--ink);color:#fff;}
+#size-wrap{display:flex;align-items:center;gap:6px;font-size:12px;color:#888;}
+#brush-size{width:80px;accent-color:var(--ink);}
+
+/* main button */
+#btn-divine{
+  background:var(--red);color:#fff;border:none;border-radius:4px;
+  font-family:'Noto Serif SC',serif;font-size:16px;font-weight:700;
+  letter-spacing:.2em;padding:12px 40px;cursor:pointer;
+  box-shadow:3px 3px 0 #7b1c13;transition:all .1s;
+  margin-bottom:24px;
+}
+#btn-divine:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 #7b1c13;}
+#btn-divine:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #7b1c13;}
+#btn-divine:disabled{background:#aaa;box-shadow:none;cursor:not-allowed;transform:none;}
+
+/* loading */
+#loading{display:none;text-align:center;margin-bottom:24px;}
+.loading-text{font-size:14px;color:var(--gold);letter-spacing:.15em;animation:blink 1.2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* result */
+#result{
+  display:none;width:100%;max-width:440px;
+  background:var(--paper);border:2px solid var(--ink);border-radius:4px;
+  box-shadow:4px 4px 0 var(--ink);padding:24px;
+  margin-bottom:32px;
+}
+#result h2{
+  font-size:16px;font-weight:900;letter-spacing:.2em;
+  text-align:center;margin-bottom:16px;color:var(--red);
+}
+.dim{margin-bottom:14px;}
+.dim-title{
+  font-size:12px;font-weight:700;letter-spacing:.15em;
+  color:var(--gold);margin-bottom:4px;
+}
+.dim-text{font-size:14px;line-height:2;color:var(--ink);}
+.stars{color:var(--red);font-size:13px;letter-spacing:.1em;}
+.verdict{
+  margin-top:18px;padding-top:14px;border-top:1px solid #ddd;
+  font-size:13px;text-align:center;color:#666;letter-spacing:.05em;line-height:1.8;
+}
+
+footer{font-size:11px;color:#bbb;letter-spacing:.05em;text-align:center;}
+</style>
+</head>
+<body>
+
+<h1>神算子</h1>
+<p class="subtitle">画脸 · 测命 · 信不信由你</p>
+
+<div class="divider"><span></span><i>☯</i><span></span></div>
+
+<div id="canvas-wrap">
+  <canvas id="draw-canvas" width="360" height="360"></canvas>
+</div>
+
+<div class="tools">
+  <button class="tool-btn active" id="btn-pen">✏ 笔</button>
+  <button class="tool-btn" id="btn-eraser">◻ 橡皮</button>
+  <button class="tool-btn" id="btn-clear">✕ 清空</button>
+  <div id="size-wrap">
+    粗细 <input type="range" id="brush-size" min="2" max="20" value="4"/>
+  </div>
+</div>
+
+<button id="btn-divine" disabled>⚡ 测　命</button>
+
+<div id="loading">
+  <p class="loading-text">大师掐指计算中……</p>
+</div>
+
+<div id="result">
+  <h2>〖 命 理 批 注 〗</h2>
+  <div id="result-body"></div>
+  <p class="verdict" id="result-verdict"></p>
+</div>
+
+<footer>本站面相纯属娱乐，如有雷同，纯属巧合（或者命中注定）</footer>
+
+<script>
+var canvas = document.getElementById('draw-canvas');
+var ctx = canvas.getContext('2d');
+ctx.fillStyle = '#fffdf6';
+ctx.fillRect(0,0,canvas.width,canvas.height);
+
+var isDrawing = false;
+var tool = 'pen';
+var hasDrawn = false;
+
+function getPos(e) {
+  var r = canvas.getBoundingClientRect();
+  var src = e.touches ? e.touches[0] : e;
+  return { x: (src.clientX - r.left) * (canvas.width/r.width), y: (src.clientY - r.top) * (canvas.height/r.height) };
+}
+
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', endDraw);
+canvas.addEventListener('mouseleave', endDraw);
+canvas.addEventListener('touchstart', function(e){e.preventDefault();startDraw(e);},{passive:false});
+canvas.addEventListener('touchmove', function(e){e.preventDefault();draw(e);},{passive:false});
+canvas.addEventListener('touchend', endDraw);
+
+function startDraw(e) {
+  isDrawing = true;
+  var pos = getPos(e);
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y);
+}
+function draw(e) {
+  if (!isDrawing) return;
+  var pos = getPos(e);
+  var size = parseInt(document.getElementById('brush-size').value);
+  ctx.lineWidth = tool === 'eraser' ? size * 4 : size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = tool === 'eraser' ? '#fffdf6' : '#1a1008';
+  ctx.lineTo(pos.x, pos.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y);
+  hasDrawn = true;
+  document.getElementById('btn-divine').disabled = false;
+}
+function endDraw() { isDrawing = false; }
+
+document.getElementById('btn-pen').addEventListener('click',function(){
+  tool='pen';
+  document.getElementById('btn-pen').classList.add('active');
+  document.getElementById('btn-eraser').classList.remove('active');
+});
+document.getElementById('btn-eraser').addEventListener('click',function(){
+  tool='eraser';
+  document.getElementById('btn-eraser').classList.add('active');
+  document.getElementById('btn-pen').classList.remove('active');
+});
+document.getElementById('btn-clear').addEventListener('click',function(){
+  ctx.fillStyle='#fffdf6'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  hasDrawn=false;
+  document.getElementById('btn-divine').disabled=true;
+  document.getElementById('result').style.display='none';
+});
+
+// ── 面相分析 ────────────────────────────────────────────────────────────────
+var MOCK_RESULTS = [
+  {
+    dims:[
+      {title:'〔 财　运 〕',stars:'★★☆☆☆',text:'天庭略显低洼，财运如过山车，起伏剧烈。建议随身携带发票，以备不时之需。'},
+      {title:'〔 感　情 〕',stars:'★★★☆☆',text:'眉间距离宽广，性情豁达，异性缘尚可。但眉尾下垂，主感情中途容易找不到充电器。'},
+      {title:'〔 事　业 〕',stars:'★★★★☆',text:'鼻梁挺拔（大概），意志坚定。一生适合从事"假装很忙"类工作，前途无量。'},
+      {title:'〔 注　意 〕',stars:'⚠',text:'印堂隐现阴云，近期出门记得带伞。另，左耳偏小者，易在超市迷路。'},
+    ],
+    verdict:'综合批命：此人面相平中藏奇，奇中带平。总体而言，吃饱喝足，万事皆休。'
+  },
+  {
+    dims:[
+      {title:'〔 财　运 〕',stars:'★★★★☆',text:'颧骨有神，财气外露。惟需注意：钱来得快，奶茶喝得也快，余额可能始终在原地。'},
+      {title:'〔 感　情 〕',stars:'★☆☆☆☆',text:'下巴收窄，感情线短促。此面相者，暗恋次数远超表白次数，建议多练习开口说话。'},
+      {title:'〔 事　业 〕',stars:'★★★☆☆',text:'额头宽广，脑容量充足。天生适合做PPT，配色审美尚待观察。'},
+      {title:'〔 注　意 〕',stars:'⚠',text:'法令纹初现，主近期将被迫参加一场无意义的会议。建议提前准备好"在听在听"的表情。'},
+    ],
+    verdict:'综合批命：面相中上，命中自带WiFi体质。走到哪里信号都比别人好，此乃大吉之兆。'
+  },
+  {
+    dims:[
+      {title:'〔 财　运 〕',stars:'★★★☆☆',text:'山根平直，财运稳健。一生不大富，但外卖从不将就，此为隐形富贵之相。'},
+      {title:'〔 感　情 〕',stars:'★★★★☆',text:'双眸有神，桃花旺盛。惟桃花多为"已读不回型"，建议降低期待，广撒网，捞大鱼。'},
+      {title:'〔 事　业 〕',stars:'★★☆☆☆',text:'眼角微垂，主职场上容易被分配"帮我顺便也做一下"的任务。此乃劳碌之命，建议学会说不。'},
+      {title:'〔 注　意 〕',stars:'⚠',text:'耳垂饱满，本是长寿之相，但嘴角纹路显示近期将吃到一顿难以描述的外卖。'},
+    ],
+    verdict:'综合批命：此面与众不同，独一无二——主要是因为没人会把脸画成这样。天赋异禀，前途自创。'
+  }
+];
+
+document.getElementById('btn-divine').addEventListener('click', function() {
+  if (!hasDrawn) return;
+  var btn = this;
+  btn.disabled = true;
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+
+  // Get image data
+  var imgData = canvas.toDataURL('image/png');
+
+  // Call API (with mock fallback)
+  callDivine(imgData).then(function(res) {
+    document.getElementById('loading').style.display = 'none';
+    showResult(res);
+    btn.disabled = false;
+  }).catch(function() {
+    // Mock fallback
+    document.getElementById('loading').style.display = 'none';
+    var mock = MOCK_RESULTS[Math.floor(Math.random()*MOCK_RESULTS.length)];
+    showResult(mock);
+    btn.disabled = false;
+  });
+});
+
+async function callDivine(imgData) {
+  // When worker is ready, replace this URL
+  var WORKER_URL = '/api/divine';
+  var res = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({image: imgData})
+  });
+  if (!res.ok) throw new Error('API error');
+  return await res.json();
+}
+
+function showResult(data) {
+  var body = document.getElementById('result-body');
+  body.innerHTML = '';
+  data.dims.forEach(function(d) {
+    var el = document.createElement('div');
+    el.className = 'dim';
+    el.innerHTML = '<div class="dim-title">'+d.title+'<span class="stars"> '+d.stars+'</span></div>'
+                 + '<div class="dim-text">'+d.text+'</div>';
+    body.appendChild(el);
+  });
+  document.getElementById('result-verdict').textContent = data.verdict;
+  var result = document.getElementById('result');
+  result.style.display = 'block';
+  result.scrollIntoView({behavior:'smooth', block:'start'});
+}
+</script>
+</body>
+</html>
