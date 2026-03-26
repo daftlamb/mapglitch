@@ -42,6 +42,12 @@ input[type=color]{width:36px;height:26px;border:none;border-radius:4px;cursor:po
 
   <div>
     <div class="section-title">Fold Unit</div>
+    <div class="btn-group" style="margin-bottom:8px">
+      <button class="btn active" id="type-pyramid">Pyramid</button>
+      <button class="btn" id="type-miura">Miura</button>
+      <button class="btn" id="type-triangle">Triangle</button>
+      <button class="btn" id="type-hex">Hex</button>
+    </div>
     <div class="row">
       <label>Cell size</label>
       <input type="range" id="cell-size" min="30" max="200" value="90" step="5"/>
@@ -126,6 +132,7 @@ var W = 720, H = 720;
 var canvas = document.getElementById('main-canvas');
 var ctx = canvas.getContext('2d');
 var currentView = 'top';
+var currentType = 'pyramid'; // pyramid | miura | triangle | hex
 var rawRoads = [], rawRivers = [], rawCoast = [];
 var roadsBounds = null;
 
@@ -212,6 +219,76 @@ function buildMesh(p) {
   return { cells: cells, cs: cs, rows: rows, cols: cols, startX: startX, startY: startY, sk: sk };
 }
 
+// ── Miura fold (classic origami pattern) ──────────────────────────────────
+function buildMiura(p) {
+  var cs = p.cellSize;
+  var depth = p.foldH * cs * 0.6;
+  var sk = p.skew * cs * 0.5;
+  var cols = Math.ceil(W/cs)+6, rows = Math.ceil(H/cs)+6;
+  var startX = -Math.floor(cols/2)*cs+W/2, startY = -Math.floor(rows/2)*cs+H/2;
+  var cg=[];
+  for(var r=0;r<=rows;r++){cg[r]=[];for(var c=0;c<=cols;c++){
+    var sign=((r+c)%2===0)?1:-1;
+    cg[r][c]={x:startX+c*cs+r*sk,y:startY+r*cs,z:sign*depth*0.3};
+  }}
+  var cells=[];
+  for(var r=0;r<rows;r++){for(var c=0;c<cols;c++){
+    var vTL=cg[r][c],vTR=cg[r][c+1],vBR=cg[r+1][c+1],vBL=cg[r+1][c];
+    cells.push({vTL:vTL,vTR:vTR,vBR:vBR,vBL:vBL,faces:[
+      {verts:[vTL,vTR,vBR]},{verts:[vTL,vBR,vBL]}
+    ]});
+  }}
+  return {cells:cells,cs:cs,rows:rows,cols:cols,startX:startX,startY:startY,sk:sk};
+}
+
+// ── Triangle grid ──────────────────────────────────────────────────────────
+function buildTriangle(p) {
+  var cs = p.cellSize;
+  var depth = p.foldH * cs * 0.5;
+  var h = cs * Math.sqrt(3)/2;
+  var cols = Math.ceil(W/cs)+6, rows = Math.ceil(H/h)+6;
+  var startX = -Math.floor(cols/2)*cs+W/2, startY = -Math.floor(rows/2)*h+H/2;
+  var cg=[];
+  for(var r=0;r<=rows;r++){cg[r]=[];for(var c=0;c<=cols;c++){
+    var off=(r%2)*cs*0.5;
+    cg[r][c]={x:startX+c*cs+off,y:startY+r*h,z:0};
+  }}
+  var cells=[];
+  for(var r=0;r<rows;r++){for(var c=0;c<cols;c++){
+    var v0=cg[r][c],v1=cg[r][c+1],v2=cg[r+1][c+(r%2)];
+    var sign=((r+c)%2===0)?1:-1;
+    var cx=(v0.x+v1.x+v2.x)/3,cy=(v0.y+v1.y+v2.y)/3;
+    var vA={x:cx,y:cy,z:sign*depth};
+    cells.push({faces:[{verts:[v0,v1,vA]},{verts:[v1,v2,vA]},{verts:[v2,v0,vA]}]});
+  }}
+  return {cells:cells,cs:cs,rows:rows,cols:cols};
+}
+
+// ── Hexagon grid ───────────────────────────────────────────────────────────
+function buildHex(p) {
+  var cs = p.cellSize;
+  var depth = p.foldH * cs * 0.5;
+  var w = cs * Math.sqrt(3), h = cs * 1.5;
+  var cols = Math.ceil(W/w)+4, rows = Math.ceil(H/h)+4;
+  var startX = -Math.floor(cols/2)*w+W/2, startY = -Math.floor(rows/2)*h+H/2;
+  var cells=[];
+  for(var r=0;r<rows;r++){for(var c=0;c<cols;c++){
+    var off=(r%2)*w*0.5;
+    var cx=startX+c*w+off,cy=startY+r*h;
+    var sign=((r+c)%2===0)?1:-1;
+    var verts=[];
+    for(var i=0;i<6;i++){
+      var a=Math.PI/3*i;
+      verts.push({x:cx+cs*Math.cos(a),y:cy+cs*Math.sin(a),z:0});
+    }
+    var vA={x:cx,y:cy,z:sign*depth};
+    var faces=[];
+    for(var i=0;i<6;i++){faces.push({verts:[verts[i],verts[(i+1)%6],vA]});}
+    cells.push({faces:faces});
+  }}
+  return {cells:cells,cs:cs};
+}
+
 // ── Projection ─────────────────────────────────────────────────────────────
 function project(v) {
   if (currentView === 'top') {
@@ -250,7 +327,11 @@ var lastMesh = null;
 
 function render() {
   var p = getParams();
-  var mesh = buildMesh(p);
+  var mesh;
+  if      (currentType === 'miura')    mesh = buildMiura(p);
+  else if (currentType === 'triangle') mesh = buildTriangle(p);
+  else if (currentType === 'hex')      mesh = buildHex(p);
+  else                                 mesh = buildMesh(p);
   lastMesh = mesh;
 
   ctx.fillStyle = '#0e0e0e';
@@ -425,6 +506,18 @@ document.getElementById('view-iso').addEventListener('click',function(){
   document.getElementById('view-iso').classList.add('active');
   document.getElementById('view-top').classList.remove('active');
   render();
+});
+
+// Type toggle buttons
+['pyramid','miura','triangle','hex'].forEach(function(t){
+  document.getElementById('type-'+t).addEventListener('click',function(){
+    currentType=t;
+    ['pyramid','miura','triangle','hex'].forEach(function(x){
+      document.getElementById('type-'+x).classList.remove('active');
+    });
+    this.classList.add('active');
+    render();
+  });
 });
 
 // ── Export ─────────────────────────────────────────────────────────────────
