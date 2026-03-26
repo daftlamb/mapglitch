@@ -33,7 +33,7 @@ input[type=color]{width:36px;height:26px;border:none;border-radius:4px;cursor:po
 
   <div>
     <div class="section-title">Character</div>
-    <input type="text" id="char-input" value="山" maxlength="1" style="font-size:32px;height:52px;font-family:'Noto Serif SC',serif"/>
+    <input type="text" id="char-input" value="山" maxlength="1" style="font-size:32px;height:52px;font-family:'Noto Sans SC','Noto Sans CJK SC',sans-serif"/>
     <button class="btn btn-primary" id="btn-generate" style="margin-top:8px">Generate Fold</button>
     <div id="status" style="margin-top:6px">Enter a character</div>
   </div>
@@ -167,12 +167,13 @@ function parsePath(d) {
 }
 
 // Convert hanzi coords (0-1024, Y-up) to canvas coords
+// hanzi-writer uses Y-up, canvas is Y-down — must flip Y
 function hanzToCanvas(hx, hy) {
-  var margin = 100;
+  var margin = 80;
   var scale = (Math.min(W, H) - margin*2) / 900;
   return {
     x: W/2 + (hx - 512) * scale,
-    y: H/2 + (hy - 512) * scale  // Y is already flipped by hanzi-writer convention
+    y: H/2 - (hy - 512) * scale  // flip Y: hanzi Y-up → canvas Y-down
   };
 }
 
@@ -242,7 +243,7 @@ function hexToRgb(hex) {
 // Build a triangulated surface mesh from the z-field
 function buildSurface(strokePts2D, foldHeight, foldWidth, foldSpread) {
   // Grid over canvas in hanzi space
-  var step = 28; // grid resolution in hanzi coords
+  var step = 14; // grid resolution in hanzi coords (smaller = denser mesh)
   var verts = []; // 2D array [row][col] = {hx,hy,cx,cy,z}
   var gridMinH = 60, gridMaxH = 960, gridMinV = 60, gridMaxV = 960;
   var cols = Math.ceil((gridMaxH - gridMinH) / step) + 1;
