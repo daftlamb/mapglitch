@@ -138,19 +138,15 @@ async function fetchRoads(lat, lon) {
 async function fetchRivers(lat, lon) {
   var delta = 0.012;
   var bbox = (lat-delta)+','+(lon-delta)+','+(lat+delta)+','+(lon+delta);
-  var query = '[out:json][timeout:15];(way["waterway"~"^(river|stream|canal|drain)$"]('+bbox+'););out geom;';
-  var res = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data='+encodeURIComponent(query) });
-  var data = await res.json();
-  return data.elements || [];
+  var query = '[out:json][timeout:25];(way["waterway"~"^(river|stream|canal|drain)$"]('+bbox+'););out geom;';
+  return overpassFetch(query);
 }
 
 async function fetchCoast(lat, lon) {
   var delta = 0.012;
   var bbox = (lat-delta)+','+(lon-delta)+','+(lat+delta)+','+(lon+delta);
-  var query = '[out:json][timeout:15];(way["natural"="coastline"]('+bbox+');way["natural"~"^(water|bay)$"]('+bbox+'););out geom;';
-  var res = await fetch('https://overpass-api.de/api/interpreter', { method:'POST', body:'data='+encodeURIComponent(query) });
-  var data = await res.json();
-  return data.elements || [];
+  var query = '[out:json][timeout:25];(way["natural"="coastline"]('+bbox+');way["natural"~"^(water|bay)$"]('+bbox+'););out geom;';
+  return overpassFetch(query);
 }
 
 function parseRoads(elements) {
