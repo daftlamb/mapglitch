@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Glyph Fold</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0e0e0e;--panel:#181818;--border:#2a2a2a;--text:#e8e8e8;--muted:#666;--accent:#fff}
+body{background:var(--bg);color:var(--text);font-family:'Outfit','Helvetica Neue',sans-serif;font-size:13px;display:flex;height:100vh;overflow:hidden}
+#panel{width:260px;min-width:260px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;padding:16px;gap:12px}
+#canvas-area{flex:1;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+canvas{display:block}
+.section-title{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.row label{flex:1;font-size:11px;color:var(--muted)}
+input[type=text]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-family:inherit;font-size:14px;outline:none;width:100%;text-align:center}
+input[type=range]{flex:1;accent-color:var(--accent)}
+input[type=color]{width:36px;height:26px;border:none;border-radius:4px;cursor:pointer;background:none;padding:0}
+.btn{background:transparent;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 14px;font-family:inherit;font-size:12px;cursor:pointer;transition:border-color .15s;width:100%}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent);color:#000;border-color:var(--accent)}
+.val-label{font-size:11px;color:var(--text);width:32px;text-align:right}
+.btn-group{display:flex;gap:6px}
+.btn-group .btn{flex:1;padding:5px 8px;font-size:11px}
+.btn-group .btn.active{background:var(--accent);color:#000;border-color:var(--accent)}
+#status{font-size:11px;color:var(--muted);min-height:16px}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500&display=swap" rel="stylesheet"/>
+</head>
+<body>
+<div id="panel">
+
+  <div>
+    <div class="section-title">Character</div>
+    <input type="text" id="char-input" value="山" maxlength="1" style="font-size:32px;height:52px;font-family:'Noto Serif SC',serif"/>
+    <button class="btn btn-primary" id="btn-generate" style="margin-top:8px">Generate Fold</button>
+    <div id="status" style="margin-top:6px">Enter a character</div>
+  </div>
+
+  <div>
+    <div class="section-title">View</div>
+    <div class="btn-group">
+      <button class="btn active" id="view-top">Top</button>
+      <button class="btn" id="view-iso">Isometric</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">Fold</div>
+    <div class="row">
+      <label>Fold height</label>
+      <input type="range" id="fold-height" min="0" max="200" value="80" step="5"/>
+      <span class="val-label" id="fh-val">80</span>
+    </div>
+    <div class="row">
+      <label>Fold width</label>
+      <input type="range" id="fold-width" min="5" max="80" value="24" step="1"/>
+      <span class="val-label" id="fw-val">24</span>
+    </div>
+    <div class="row">
+      <label>Spread</label>
+      <input type="range" id="fold-spread" min="0" max="100" value="40" step="5"/>
+      <span class="val-label" id="fs-val">40</span>
+    </div>
+    <div class="row">
+      <label>Light angle</label>
+      <input type="range" id="light-angle" min="0" max="360" value="220" step="5"/>
+      <span class="val-label" id="la-val">220°</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">Paper</div>
+    <div class="row">
+      <label>Color</label>
+      <input type="color" id="paper-color" value="#f0ece4"/>
+    </div>
+    <div class="row">
+      <label>BG color</label>
+      <input type="color" id="bg-color" value="#0e0e0e"/>
+    </div>
+    <div class="row">
+      <label>Shadow</label>
+      <input type="range" id="shadow-str" min="0" max="100" value="70" step="5"/>
+      <span class="val-label" id="sh-val">70</span>
+    </div>
+    <div class="row">
+      <label>Show strokes</label>
+      <input type="checkbox" id="show-strokes" checked/>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">Export</div>
+    <div class="btn-group">
+      <button class="btn" id="btn-export-png">PNG</button>
+      <button class="btn" id="btn-export-svg">SVG</button>
+    </div>
+  </div>
+
+</div>
+<div id="canvas-area">
+  <canvas id="main-canvas" width="720" height="900"></canvas>
+</div>
+
+<script>
+var W = 720, H = 900;
+var canvas = document.getElementById('main-canvas');
+var ctx = canvas.getContext('2d');
+var currentView = 'top';
+var currentStrokes = []; // raw hanzi-writer stroke paths
+var currentChar = '';
+
+// ── Fetch stroke data ──────────────────────────────────────────────────────
+function setStatus(m) { document.getElementById('status').textContent = m; }
+
+async function loadChar(ch) {
+  setStatus('Loading…');
+  try {
+    var res = await fetch('https://cdn.jsdelivr.net/npm/hanzi-writer-data@latest/' + encodeURIComponent(ch) + '.json');
+    if (!res.ok) throw new Error('Character not found');
+    var data = await res.json();
+    currentStrokes = data.strokes || [];
+    currentChar = ch;
+    setStatus(currentStrokes.length + ' strokes');
+    renderFold();
+  } catch(e) {
+    setStatus('Error: ' + e.message);
+  }
+}
+
+// ── Parse SVG path into polyline points ───────────────────────────────────
+// hanzi-writer paths are in a 1024×1024 coordinate space (Y flipped)
+function parsePath(d) {
+  var pts = [];
+  var cmds = d.match(/[MmLlCcQqZz][^MmLlCcQqZz]*/g) || [];
+  var cx = 0, cy = 0;
+  cmds.forEach(function(cmd) {
+    var type = cmd[0];
+    var nums = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(function(n){ return !isNaN(n); });
+    if (type === 'M') { cx=nums[0]; cy=nums[1]; pts.push([cx,cy]); }
+    else if (type === 'L') { cx=nums[0]; cy=nums[1]; pts.push([cx,cy]); }
+    else if (type === 'C') {
+      // Cubic bezier — sample it
+      var x0=cx,y0=cy;
+      for (var t=0; t<=1; t+=0.15) {
+        var mt=1-t;
+        var bx=mt*mt*mt*x0 + 3*mt*mt*t*nums[0] + 3*mt*t*t*nums[2] + t*t*t*nums[4];
+        var by=mt*mt*mt*y0 + 3*mt*mt*t*nums[1] + 3*mt*t*t*nums[3] + t*t*t*nums[5];
+        pts.push([bx,by]);
+      }
+      cx=nums[4]; cy=nums[5]; pts.push([cx,cy]);
+    }
+    else if (type === 'Q') {
+      var x0=cx,y0=cy;
+      for (var t=0; t<=1; t+=0.15) {
+        var mt=1-t;
+        var bx=mt*mt*x0+2*mt*t*nums[0]+t*t*nums[2];
+        var by=mt*mt*y0+2*mt*t*nums[1]+t*t*nums[3];
+        pts.push([bx,by]);
+      }
+      cx=nums[2]; cy=nums[3];
+    }
+  });
+  return pts;
+}
+
+// Convert hanzi coords (0-1024, Y-up) to canvas coords
+function hanzToCanvas(hx, hy) {
+  var margin = 100;
+  var scale = (Math.min(W, H) - margin*2) / 900;
+  return {
+    x: W/2 + (hx - 512) * scale,
+    y: H/2 + (hy - 512) * scale  // Y is already flipped by hanzi-writer convention
+  };
+}
+
+// ── Fold geometry ──────────────────────────────────────────────────────────
+// Each stroke segment becomes a ridge fold.
+// For each point on a stroke, we compute a z-displacement that creates
+// a tent/ridge shape: high at the stroke center line, falling off perpendicular to stroke.
+
+function computeZ(px, py, strokes, foldHeight, foldWidth, foldSpread) {
+  var totalZ = 0;
+  var influence = 0;
+
+  strokes.forEach(function(strokePts, si) {
+    // Find closest point on this stroke
+    var minDist = Infinity;
+    var closestT = 0;
+    for (var i = 0; i < strokePts.length - 1; i++) {
+      var ax = strokePts[i][0], ay = strokePts[i][1];
+      var bx = strokePts[i+1][0], by = strokePts[i+1][1];
+      var dx = bx-ax, dy = by-ay;
+      var len2 = dx*dx+dy*dy;
+      if (len2 < 0.001) continue;
+      var t = Math.max(0,Math.min(1, ((px-ax)*dx+(py-ay)*dy)/len2));
+      var nx = ax+t*dx-px, ny = ay+t*dy-py;
+      var dist = Math.sqrt(nx*nx+ny*ny);
+      if (dist < minDist) { minDist = dist; closestT = t; }
+    }
+
+    // Ridge profile: gaussian-like falloff from stroke center
+    var w = foldWidth * 5; // in hanzi coords
+    if (minDist < w * 3) {
+      var ridge = Math.exp(-(minDist*minDist)/(2*w*w));
+      totalZ += ridge * foldHeight * 2;
+      influence += ridge;
+    }
+  });
+
+  // Spread: general paper elevation from character bounding box center
+  if (foldSpread > 0) {
+    var dx = px - 512, dy = py - 512;
+    var dist = Math.sqrt(dx*dx+dy*dy);
+    var spreadR = 400;
+    totalZ += Math.max(0, (1 - dist/spreadR)) * foldSpread * 0.5;
+  }
+
+  return totalZ;
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function project3D(x, y, z) {
+  if (currentView === 'top') {
+    return { x: x, y: y - z * 0.25 };
+  } else {
+    // Isometric
+    var a = Math.PI / 4;
+    return {
+      x: x + z * Math.cos(a) * 0.6,
+      y: y - z * (Math.sin(a) * 0.6 + 0.5)
+    };
+  }
+}
+
+function hexToRgb(hex) {
+  return { r:parseInt(hex.slice(1,3),16), g:parseInt(hex.slice(3,5),16), b:parseInt(hex.slice(5,7),16) };
+}
+
+// Build a triangulated surface mesh from the z-field
+function buildSurface(strokePts2D, foldHeight, foldWidth, foldSpread) {
+  // Grid over canvas in hanzi space
+  var step = 28; // grid resolution in hanzi coords
+  var verts = []; // 2D array [row][col] = {hx,hy,cx,cy,z}
+  var gridMinH = 60, gridMaxH = 960, gridMinV = 60, gridMaxV = 960;
+  var cols = Math.ceil((gridMaxH - gridMinH) / step) + 1;
+  var rows = Math.ceil((gridMaxV - gridMinV) / step) + 1;
+
+  for (var r = 0; r < rows; r++) {
+    verts[r] = [];
+    for (var c = 0; c < cols; c++) {
+      var hx = gridMinH + c * step;
+      var hy = gridMinV + r * step;
+      var z = computeZ(hx, hy, strokePts2D, foldHeight, foldWidth, foldSpread);
+      var cp = hanzToCanvas(hx, hy);
+      verts[r][c] = { hx:hx, hy:hy, x:cp.x, y:cp.y, z:z };
+    }
+  }
+  return { verts:verts, rows:rows, cols:cols };
+}
+
+function faceNormal(v0, v1, v2) {
+  var ax=v1.x-v0.x, ay=v1.y-v0.y, az=v1.z-v0.z;
+  var bx=v2.x-v0.x, by=v2.y-v0.y, bz=v2.z-v0.z;
+  var nx=ay*bz-az*by, ny=az*bx-ax*bz, nz=ax*by-ay*bx;
+  var nl=Math.sqrt(nx*nx+ny*ny+nz*nz); if(nl<0.001) return {x:0,y:0,z:1};
+  return {x:nx/nl,y:ny/nl,z:nz/nl};
+}
+
+function renderFold() {
+  var foldHeight = parseInt(document.getElementById('fold-height').value);
+  var foldWidth  = parseInt(document.getElementById('fold-width').value);
+  var foldSpread = parseInt(document.getElementById('fold-spread').value);
+  var lightAngle = parseInt(document.getElementById('light-angle').value) * Math.PI / 180;
+  var shadowStr  = parseInt(document.getElementById('shadow-str').value) / 100;
+  var paperColor = document.getElementById('paper-color').value;
+  var bgColor    = document.getElementById('bg-color').value;
+  var showStrokes= document.getElementById('show-strokes').checked;
+
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, W, H);
+
+  if (!currentStrokes.length) return;
+
+  // Parse all strokes to polyline points (in hanzi 0-1024 space)
+  var strokePts2D = currentStrokes.map(function(d) { return parsePath(d); });
+
+  // Build surface
+  var surf = buildSurface(strokePts2D, foldHeight, foldWidth, foldSpread);
+  var verts = surf.verts;
+  var rows = surf.rows, cols = surf.cols;
+
+  // Light direction
+  var lx = Math.cos(lightAngle), ly = Math.sin(lightAngle), lz = 0.8;
+  var ll = Math.sqrt(lx*lx+ly*ly+lz*lz); lx/=ll; ly/=ll; lz/=ll;
+
+  var pc = hexToRgb(paperColor);
+
+  // Render quads as 2 triangles, back-to-front (painter's algorithm by avg y)
+  var tris = [];
+  for (var r = 0; r < rows-1; r++) {
+    for (var c = 0; c < cols-1; c++) {
+      var v00 = verts[r][c], v10 = verts[r+1][c];
+      var v01 = verts[r][c+1], v11 = verts[r+1][c+1];
+      tris.push([v00,v01,v11]);
+      tris.push([v00,v11,v10]);
+    }
+  }
+
+  // Sort back to front
+  tris.sort(function(a,b){
+    var ay=(a[0].y+a[1].y+a[2].y)/3 - (a[0].z+a[1].z+a[2].z)*0.3;
+    var by=(b[0].y+b[1].y+b[2].y)/3 - (b[0].z+b[1].z+b[2].z)*0.3;
+    return ay-by;
+  });
+
+  tris.forEach(function(tri) {
+    var v0=tri[0], v1=tri[1], v2=tri[2];
+    var p0=project3D(v0.x,v0.y,v0.z);
+    var p1=project3D(v1.x,v1.y,v1.z);
+    var p2=project3D(v2.x,v2.y,v2.z);
+
+    var n = faceNormal(
+      {x:p0.x,y:p0.y,z:v0.z},
+      {x:p1.x,y:p1.y,z:v1.z},
+      {x:p2.x,y:p2.y,z:v2.z}
+    );
+    var dot = n.x*lx + n.y*ly + n.z*lz;
+    var bright = Math.max(0.08, Math.min(1.0, 0.5 + dot*0.5*shadowStr + (1-shadowStr)*0.5));
+
+    ctx.beginPath();
+    ctx.moveTo(p0.x,p0.y);
+    ctx.lineTo(p1.x,p1.y);
+    ctx.lineTo(p2.x,p2.y);
+    ctx.closePath();
+    ctx.fillStyle = 'rgb('+Math.round(pc.r*bright)+','+Math.round(pc.g*bright)+','+Math.round(pc.b*bright)+')';
+    ctx.fill();
+  });
+
+  // Stroke outlines
+  if (showStrokes) {
+    strokePts2D.forEach(function(pts) {
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      var started = false;
+      pts.forEach(function(pt) {
+        var z = computeZ(pt[0], pt[1], strokePts2D, foldHeight, foldWidth, foldSpread);
+        var cp = hanzToCanvas(pt[0], pt[1]);
+        var pp = project3D(cp.x, cp.y, z + 2);
+        if (!started) { ctx.moveTo(pp.x, pp.y); started=true; }
+        else ctx.lineTo(pp.x, pp.y);
+      });
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    });
+  }
+}
+
+// ── Controls ───────────────────────────────────────────────────────────────
+document.getElementById('btn-generate').addEventListener('click', function() {
+  var ch = document.getElementById('char-input').value.trim();
+  if (!ch) return;
+  loadChar(ch[0]);
+});
+document.getElementById('char-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    var ch = this.value.trim();
+    if (ch) loadChar(ch[0]);
+  }
+});
+
+function bindSlider(id, valId, suffix) {
+  var el=document.getElementById(id), vl=document.getElementById(valId);
+  el.addEventListener('input',function(){ vl.textContent=el.value+(suffix||''); renderFold(); });
+}
+bindSlider('fold-height','fh-val','');
+bindSlider('fold-width','fw-val','');
+bindSlider('fold-spread','fs-val','');
+bindSlider('light-angle','la-val','°');
+bindSlider('shadow-str','sh-val','');
+['paper-color','bg-color','show-strokes'].forEach(function(id){
+  var el=document.getElementById(id);
+  el.addEventListener('change',renderFold); el.addEventListener('input',renderFold);
+});
+
+document.getElementById('view-top').addEventListener('click',function(){
+  currentView='top';
+  document.getElementById('view-top').classList.add('active');
+  document.getElementById('view-iso').classList.remove('active');
+  renderFold();
+});
+document.getElementById('view-iso').addEventListener('click',function(){
+  currentView='iso';
+  document.getElementById('view-iso').classList.add('active');
+  document.getElementById('view-top').classList.remove('active');
+  renderFold();
+});
+
+// ── Export ─────────────────────────────────────────────────────────────────
+document.getElementById('btn-export-png').addEventListener('click',function(){
+  var a=document.createElement('a'); a.download='glyphfold-'+currentChar+'.png';
+  a.href=canvas.toDataURL('image/png'); a.click();
+});
+
+// Initial load
+loadChar('山');
+</script>
+</body>
+</html>
