@@ -152,7 +152,7 @@ function getParams() {
   };
 }
 
-// ── Herringbone mesh ───────────────────────────────────────────────────────
+// ── Herringbone mesh — shared vertex grid (no seams) ──────────────────────
 function buildMesh(p) {
   var cs = p.cellSize;
   var sk = p.skewAngle;
@@ -160,26 +160,68 @@ function buildMesh(p) {
   var hh = cs * Math.sin(sk);
   var depth = p.foldDepth * cs * 0.5;
 
-  var cols = Math.ceil(W / (hw * 2)) + 4;
-  var rows = Math.ceil(H / (hh * 2)) + 4;
+  var cols = Math.ceil(W / (hw * 2)) + 6;
+  var rows = Math.ceil(H / (hh * 2)) + 6;
   var offX = Math.floor(cols / 2) * hw * 2;
   var offY = Math.floor(rows / 2) * hh * 2;
+
+  // Build shared vertex grid
+  // Each cell (row,col) has center vertex + 4 edge vertices shared with neighbors
+  // Vertex key: "type_row_col"
+  var verts = {};
+  function vkey(type, r, c) { return type+'_'+r+'_'+c; }
+  function getVert(type, r, c) {
+    var k = vkey(type, r, c);
+    if (verts[k]) return verts[k];
+    var sign = (((r+c)%2)+2)%2===0 ? 1 : -1;
+    var ox = c*hw*2 + (((r%2)+2)%2)*hw + W/2 - offX;
+    var oy = r*hh*2 + H/2 - offY;
+    var v;
+    if (type==='C') v = {x:ox,      y:oy,      z:0};
+    if (type==='T') v = {x:ox,      y:oy-hh,   z: sign*depth};
+    if (type==='R') v = {x:ox+hw,   y:oy,      z:-sign*depth};
+    if (type==='B') v = {x:ox,      y:oy+hh,   z: sign*depth};
+    if (type==='L') v = {x:ox-hw,   y:oy,      z:-sign*depth};
+    verts[k] = v;
+    return v;
+  }
+
+  // Shared vertices: T of (r,c) == B of (r-1,c), R of (r,c) == L of (r,c+1)
+  // But herringbone rows are offset — T of (r,c) == B of (r-1, c + (odd_offset))
+  // Easier: just use canonical vertex positions and deduplicate by proximity
+  // Strategy: T/B/L/R vertices at grid intersections are shared between adjacent cells
+
   var cells = [];
+  for (var row = -2; row < rows-2; row++) {
+    for (var col = -2; col < cols-2; col++) {
+      var sign = (((row+col)%2)+2)%2===0 ? 1 : -1;
+      // Vertices — T of this cell is B of the cell above
+      // Row above (row-1) at same column has offset if rows differ in parity
+      var vC = getVert('C', row,   col);
+      var vT = getVert('T', row,   col);  // top of this cell
+      var vR = getVert('R', row,   col);  // right of this cell
+      var vB = getVert('B', row,   col);  // bottom = T of row+1
+      var vL = getVert('L', row,   col);  // left = R of col-1
 
-  for (var row = -2; row < rows; row++) {
-    for (var col = -2; col < cols; col++) {
-      var ox = col * hw * 2 + (((row % 2) + 2) % 2) * hw + W/2 - offX;
-      var oy = row * hh * 2 + H/2 - offY;
-      var sign = (((row + col) % 2) + 2) % 2 === 0 ? 1 : -1;
-
-      var vT = { x: ox,      y: oy - hh, z:  sign * depth };
-      var vR = { x: ox + hw, y: oy,      z: -sign * depth };
-      var vB = { x: ox,      y: oy + hh, z:  sign * depth };
-      var vL = { x: ox - hw, y: oy,      z: -sign * depth };
-      var vC = { x: ox,      y: oy,      z: 0 };
+      // Force shared vertices: bottom of this = top of cell below
+      // Top of cell below (row+1, col_below)
+      // In herringbone, row+1 is offset by hw if row is even
+      // The "T" of (row+1, col) sits at same x,y as "B" of (row, col)
+      // So just make them the same object:
+      var belowSign = (((row+1+col)%2)+2)%2===0 ? 1 : -1;
+      var kBelow = vkey('T', row+1, col);
+      if (!verts[kBelow]) {
+        verts[kBelow] = { x: vB.x, y: vB.y, z: belowSign*depth };
+      }
+      // Right of this = Left of (row, col+1)
+      var kRight = vkey('L', row, col+1);
+      if (!verts[kRight]) {
+        var rsign = (((row+col+1)%2)+2)%2===0 ? 1 : -1;
+        verts[kRight] = { x: vR.x, y: vR.y, z: -rsign*depth };
+      }
 
       cells.push({
-        ox: ox, oy: oy, hw: hw, hh: hh, sign: sign, depth: depth,
+        ox: vC.x, oy: vC.y, hw: hw, hh: hh, sign: sign, depth: depth,
         vT: vT, vR: vR, vB: vB, vL: vL, vC: vC,
         faces: [
           { verts: [vT, vL, vC] },
