@@ -61,6 +61,10 @@ input[type=color]{width:36px;height:26px;border:none;border-radius:4px;cursor:po
       <label>Show grid</label>
       <input type="checkbox" id="show-grid" checked/>
     </div>
+    <div class="row">
+      <label>Show creases</label>
+      <input type="checkbox" id="show-creases" checked/>
+    </div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="btn btn-danger" id="btn-undo" style="flex:1">Undo</button>
       <button class="btn btn-danger" id="btn-clear" style="flex:1">Clear</button>
@@ -82,6 +86,12 @@ input[type=color]{width:36px;height:26px;border:none;border-radius:4px;cursor:po
     <div class="row"><label>Rivers</label><input type="checkbox" id="layer-rivers" checked/></div>
     <div class="row"><label>Coastline</label><input type="checkbox" id="layer-coast" checked/></div>
 
+    <div class="section-title" style="margin-top:12px">Map Scale</div>
+    <div class="row">
+      <label>Zoom</label>
+      <input type="range" id="map-zoom" min="50" max="300" value="88" step="5"/>
+      <span class="val-label" id="zoom-val">88%</span>
+    </div>
     <div class="section-title" style="margin-top:12px">Style</div>
     <div class="row">
       <label>Line color</label>
@@ -262,26 +272,42 @@ function render() {
     ctx.restore();
   }
 
-  // Paper shading (brightness based on fold)
+  // Paper shading — smooth per-pixel using ImageData
   if (creases.length > 0) {
-    var sampleStep = 8;
-    for (var sx = 0; sx < W; sx += sampleStep) {
-      for (var sy = 0; sy < H; sy += sampleStep) {
-        var fpt = applyFolds(sx + sampleStep/2, sy + sampleStep/2);
-        if (fpt.bright < 0.99) {
-          ctx.fillStyle = 'rgba(0,0,0,'+(0.5*(1-fpt.bright))+')';
-          ctx.fillRect(sx, sy, sampleStep, sampleStep);
-        }
+    var sampleStep = 4;
+    var imgW = Math.ceil(W / sampleStep);
+    var imgH = Math.ceil(H / sampleStep);
+    var shadingCanvas = document.createElement('canvas');
+    shadingCanvas.width = imgW; shadingCanvas.height = imgH;
+    var sctx = shadingCanvas.getContext('2d');
+    var imgData = sctx.createImageData(imgW, imgH);
+    var pix = imgData.data;
+    for (var sy2 = 0; sy2 < imgH; sy2++) {
+      for (var sx2 = 0; sx2 < imgW; sx2++) {
+        var fpt = applyFolds(sx2 * sampleStep + sampleStep/2, sy2 * sampleStep + sampleStep/2);
+        var darkness = Math.max(0, 1 - fpt.bright);
+        var idx = (sy2 * imgW + sx2) * 4;
+        pix[idx] = 0; pix[idx+1] = 0; pix[idx+2] = 0;
+        pix[idx+3] = Math.round(darkness * 180);
       }
     }
+    sctx.putImageData(imgData, 0, 0);
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(shadingCanvas, 0, 0, W, H);
+    ctx.restore();
   }
 
   // Draw existing creases
-  creases.forEach(function(c) {
-    drawCreaseLine(c.x1, c.y1, c.x2, c.y2, 'rgba(80,80,80,0.7)', 1.5);
-  });
+  var showCreases = document.getElementById('show-creases');
+  if (!showCreases || showCreases.checked) {
+    creases.forEach(function(c) {
+      drawCreaseLine(c.x1, c.y1, c.x2, c.y2, 'rgba(80,80,80,0.7)', 1.5);
+    });
+  }
 
-  // Draw active crease being drawn
+  // Draw active crease being drawn (always show while drawing)
   if (drawingCrease) {
     drawCreaseLine(drawingCrease.x1, drawingCrease.y1, drawingCrease.x2, drawingCrease.y2, 'rgba(255,255,255,0.8)', 2);
   }
@@ -318,9 +344,11 @@ function normalizePt(lat, lon, bounds) {
   var cx = (bounds.minLon + bounds.maxLon) / 2;
   var cy = (bounds.minLat + bounds.maxLat) / 2;
   var span = Math.max(bounds.maxLat - bounds.minLat, bounds.maxLon - bounds.minLon);
+  var zoomEl = document.getElementById('map-zoom');
+  var zoom = zoomEl ? parseFloat(zoomEl.value) / 100 : 0.88;
   return {
-    x: W/2 + (lon - cx) / span * W * 0.88,
-    y: H/2 - (lat - cy) / span * H * 0.88
+    x: W/2 + (lon - cx) / span * W * zoom,
+    y: H/2 - (lat - cy) / span * H * zoom
   };
 }
 
@@ -445,6 +473,11 @@ document.getElementById('line-opacity').addEventListener('input', function() {
   render();
 });
 document.getElementById('show-grid').addEventListener('change', render);
+document.getElementById('show-creases').addEventListener('change', render);
+document.getElementById('map-zoom').addEventListener('input', function() {
+  document.getElementById('zoom-val').textContent = this.value + '%';
+  render();
+});
 document.getElementById('paper-color').addEventListener('input', render);
 document.getElementById('line-color').addEventListener('input', render);
 document.getElementById('layer-roads').addEventListener('change', render);
