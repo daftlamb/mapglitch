@@ -182,42 +182,50 @@ function toCanvas(nx, ny) {
   return { x: W/2 + nx * r * 2, y: H/2 + ny * r * 2 };
 }
 
-// ── Polar fold transform ──────────────────────────────────────────────────
-// The core: take a point in normalized space, apply circular segment fold
+// ── Origami fold transform ─────────────────────────────────────────────────
+// Each segment is a flat face. Points beyond foldR get reflected/rotated around
+// the fold crease (an arc at foldR), creating a true paper-fold illusion.
 function foldPoint(nx, ny, nSegments, foldAngleDeg, foldRadiusFrac, alternating) {
+  var foldR = foldRadiusFrac / 100 * 0.5; // scale to normalized space
   var angle = foldAngleDeg * Math.PI / 180;
-  var foldR = foldRadiusFrac / 100;
 
   var r = Math.sqrt(nx*nx + ny*ny);
-  var theta = Math.atan2(ny, nx); // -PI to PI
-  if (theta < 0) theta += Math.PI * 2; // 0 to 2PI
+  var theta = Math.atan2(ny, nx);
+  if (theta < 0) theta += Math.PI * 2;
 
-  // Which segment does this point fall in?
   var segAngle = (Math.PI * 2) / nSegments;
   var segIdx = Math.floor(theta / segAngle);
-  var thetaInSeg = theta - segIdx * segAngle; // 0 to segAngle
+  var thetaInSeg = theta - segIdx * segAngle;
+  // Mid-angle of this segment
+  var segMid = segIdx * segAngle + segAngle * 0.5;
 
-  // For alternating: even segments fold up, odd fold down (or skip)
   var doFold = alternating ? (segIdx % 2 === 0) : true;
 
-  if (!doFold || r < 0.001) return { x: nx, y: ny, z: 0, alpha: 1 };
-
-  // Fold: rotate the point within its segment around the fold radius line
-  // Think of it as: the part of the segment beyond foldR gets lifted by angle degrees
-  if (r > foldR) {
-    // This part gets folded
-    var foldedR = foldR + (r - foldR) * Math.cos(angle);
-    var z = (r - foldR) * Math.sin(angle); // height above plane
-    var newTheta = segIdx * segAngle + thetaInSeg;
-    return {
-      x: foldedR * Math.cos(newTheta),
-      y: foldedR * Math.sin(newTheta),
-      z: z,
-      alpha: 0.4 + 0.6 * Math.cos(angle * 0.5)
-    };
+  if (!doFold || r <= foldR) {
+    return { x: nx, y: ny, bright: 1.0 };
   }
 
-  return { x: nx, y: ny, z: 0, alpha: 1 };
+  // Distance beyond fold crease (measured radially)
+  var beyond = r - foldR;
+
+  // Fold: reflect the beyond-portion back across the crease arc
+  // by rotating it angle degrees around the crease
+  var foldedR = foldR - beyond * Math.cos(Math.PI - angle);
+  // Clamp so folded parts don't go past center
+  if (foldedR < 0) foldedR = 0;
+
+  // Keep same angular position within segment
+  var newTheta = segIdx * segAngle + thetaInSeg;
+
+  // Brightness: folded face gets darker (simulates shadow on underside)
+  var bright = 0.25 + 0.35 * Math.cos(angle);
+
+  return {
+    x: foldedR * Math.cos(newTheta),
+    y: foldedR * Math.sin(newTheta),
+    bright: bright,
+    folded: true
+  };
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────
@@ -267,25 +275,56 @@ function render() {
   function drawLayer(roads, r, g, b, sw, op) {
     roads.forEach(function(road) {
       if (road.length < 2) return;
-      ctx.beginPath();
-      var started = false;
-      for (var i=0; i<road.length; i++) {
-        var n = normalizePt(road[i][0], road[i][1], roadsBounds);
-        var f = foldPoint(n.x, n.y, nSeg, foldAngle, foldRadius, alternating);
-        var cp = toCanvas(f.x, f.y);
-        if (!started) { ctx.moveTo(cp.x, cp.y); started = true; }
-        else ctx.lineTo(cp.x, cp.y);
+      // Draw segment by segment so we can vary opacity per point
+      for (var i=0; i<road.length-1; i++) {
+        var n0 = normalizePt(road[i][0], road[i][1], roadsBounds);
+        var n1 = normalizePt(road[i+1][0], road[i+1][1], roadsBounds);
+        var f0 = foldPoint(n0.x, n0.y, nSeg, foldAngle, foldRadius, alternating);
+        var f1 = foldPoint(n1.x, n1.y, nSeg, foldAngle, foldRadius, alternating);
+        var cp0 = toCanvas(f0.x, f0.y);
+        var cp1 = toCanvas(f1.x, f1.y);
+        var bright = (f0.bright + f1.bright) / 2;
+        ctx.beginPath();
+        ctx.moveTo(cp0.x, cp0.y);
+        ctx.lineTo(cp1.x, cp1.y);
+        ctx.strokeStyle = 'rgba('+r+','+g+','+b+','+(op * bright)+')';
+        ctx.lineWidth = sw;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.stroke();
       }
-      ctx.strokeStyle = 'rgba('+r+','+g+','+b+','+op+')';
-      ctx.lineWidth = sw;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.stroke();
     });
   }
 
+  // Draw fold crease lines (origami fold marks)
+  function drawCreases() {
+    var segAngle = (Math.PI * 2) / nSeg;
+    var foldRpx = foldRadius / 100 * 0.5 * Math.min(W,H) * 0.92;
+    var rgb2 = hexToRgb(document.getElementById('line-color').value);
+    for (var i=0; i<nSeg; i++) {
+      if (alternating && i % 2 !== 0) continue;
+      var a0 = i * segAngle;
+      var a1 = (i+1) * segAngle;
+      // Arc crease at foldR
+      ctx.beginPath();
+      ctx.arc(W/2, H/2, foldRpx, a0, a1);
+      ctx.strokeStyle = 'rgba('+rgb2.r+','+rgb2.g+','+rgb2.b+',0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // Radial lines (segment dividers)
+      var maxR = Math.min(W,H) * 0.46;
+      ctx.beginPath();
+      ctx.moveTo(W/2 + Math.cos(a0)*foldRpx, H/2 + Math.sin(a0)*foldRpx);
+      ctx.lineTo(W/2 + Math.cos(a0)*maxR, H/2 + Math.sin(a0)*maxR);
+      ctx.strokeStyle = 'rgba('+rgb2.r+','+rgb2.g+','+rgb2.b+',0.2)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+  }
+
+  drawCreases();
   if (document.getElementById('layer-roads').checked)
-    drawLayer(rawRoads, rgb.r, rgb.g, rgb.b, strokeW, opacity * 0.6);
+    drawLayer(rawRoads, rgb.r, rgb.g, rgb.b, strokeW, opacity * 0.7);
   if (document.getElementById('layer-rivers').checked)
     drawLayer(rawRivers, 80, 160, 255, strokeW * 1.4, opacity);
   if (document.getElementById('layer-coast').checked)
