@@ -147,53 +147,50 @@ function getParams() {
   };
 }
 
-// ── Miura-variant mesh (seamless pyramid units) ───────────────────────────
-//
-// Layout: rectangular grid of pyramid cells.
-// Each cell (row c, col r) has 5 vertices:
-//   TL, TR, BR, BL (shared with neighbors) + apex in center
-//
-// Apex z = +depth for even cells, -depth for odd → alternating mountain/valley
-// Corner vertices are shared: TR of (r,c) == TL of (r,c+1), etc.
-// This guarantees zero gaps.
-//
-// Each cell has 4 triangular faces: top, right, bottom, left.
+// ── Seamless pyramid mesh ─────────────────────────────────────────────────
+// Parallelogram cells with strictly shared corner vertices.
+// Skew shifts the cell shape (not row offset) so corners always align.
+// Each cell: 4 shared corners + 1 apex → 4 triangular faces, zero gaps.
 
 function buildMesh(p) {
   var cs = p.cellSize;
   var depth = p.foldH * cs * 0.55;
-  var sk = p.skew * cs * 0.3;  // horizontal skew offset per row
+  var sk = p.skew * cs * 0.4; // horizontal shear per row step
 
-  var cols = Math.ceil(W / cs) + 4;
-  var rows = Math.ceil(H / cs) + 4;
+  var cols = Math.ceil(W / cs) + 6;
+  var rows = Math.ceil(H / cs) + 6;
   var startX = -Math.floor(cols / 2) * cs + W / 2;
   var startY = -Math.floor(rows / 2) * cs + H / 2;
 
-  // Corner vertex grid: (rows+1) x (cols+1)
-  // corners[r][c] = {x, y, z}
-  var corners = [];
+  // Shared corner grid: corner[r][c] position uses parallelogram shear
+  // x = startX + c*cs + r*sk, y = startY + r*cs
+  // This means every corner is uniquely defined by (r,c) and shared between
+  // all 4 adjacent cells — guaranteed seamless.
+  function corner(r, c) {
+    return {
+      x: startX + c * cs + r * sk,
+      y: startY + r * cs,
+      z: 0
+    };
+  }
+
+  // Pre-build corner grid so adjacent cells share the exact same object
+  var cg = [];
   for (var r = 0; r <= rows; r++) {
-    corners[r] = [];
+    cg[r] = [];
     for (var c = 0; c <= cols; c++) {
-      var skewOffset = (r % 2) * sk;
-      corners[r][c] = {
-        x: startX + c * cs + skewOffset,
-        y: startY + r * cs,
-        z: 0
-      };
+      cg[r][c] = corner(r, c);
     }
   }
 
-  // Build cells with shared corners + apex
   var cells = [];
   for (var r = 0; r < rows; r++) {
     for (var c = 0; c < cols; c++) {
-      var vTL = corners[r][c];
-      var vTR = corners[r][c+1];
-      var vBR = corners[r+1][c+1];
-      var vBL = corners[r+1][c];
+      var vTL = cg[r][c];
+      var vTR = cg[r][c+1];
+      var vBR = cg[r+1][c+1];
+      var vBL = cg[r+1][c];
 
-      // Apex at center of cell
       var sign = ((r + c) % 2 === 0) ? 1 : -1;
       var ax = (vTL.x + vTR.x + vBR.x + vBL.x) / 4;
       var ay = (vTL.y + vTR.y + vBR.y + vBL.y) / 4;
@@ -203,10 +200,10 @@ function buildMesh(p) {
         vTL: vTL, vTR: vTR, vBR: vBR, vBL: vBL, vA: vA,
         sign: sign,
         faces: [
-          { verts: [vTL, vTR, vA], label: 'top'   },
-          { verts: [vTR, vBR, vA], label: 'right'  },
-          { verts: [vBR, vBL, vA], label: 'bottom' },
-          { verts: [vBL, vTL, vA], label: 'left'   },
+          { verts: [vTL, vTR, vA] },
+          { verts: [vTR, vBR, vA] },
+          { verts: [vBR, vBL, vA] },
+          { verts: [vBL, vTL, vA] },
         ]
       });
     }
